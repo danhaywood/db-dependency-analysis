@@ -14,6 +14,7 @@ from scipy.cluster.hierarchy import dendrogram
 import plotly.express as px
 import networkx as nx
 import community as community_louvain  # this is python-louvain
+from pyvis.network import Network
 
 def load_fk_data(file_path):
     df = pd.read_excel(file_path)
@@ -144,6 +145,52 @@ def plot_louvain_network(df, partition, output_base):
     output_path = f"{output_base}.louvain.html"
     fig.write_html(output_path)
     print(f"🌐 Louvain network plot saved to: {output_path}")
+
+from pyvis.network import Network
+
+def plot_louvain_pyvis(df, partition, output_base):
+    from pyvis.network import Network
+    import networkx as nx
+
+    edges = [(row['from_table'], row['to_table']) for _, row in df.iterrows()]
+    G = nx.Graph()
+    G.add_edges_from(edges)
+
+    net = Network(height='800px', width='100%', notebook=False, directed=False)
+    net.from_nx(G)
+
+    for node in net.nodes:
+        name = node['id']
+        node['group'] = partition.get(name, -1)
+
+    # Optional: tweak physics settings
+    net.set_options("""
+    var options = {
+      "nodes": {
+        "shape": "dot",
+        "size": 10,
+        "font": {"size": 12}
+      },
+      "edges": {
+        "color": {"inherit": true},
+        "smooth": false
+      },
+      "physics": {
+        "forceAtlas2Based": {
+          "gravitationalConstant": -50,
+          "springLength": 100,
+          "springConstant": 0.08
+        },
+        "minVelocity": 0.75,
+        "solver": "forceAtlas2Based"
+      }
+    }
+    """)
+
+    output_path = f"{output_base}.louvain.anim.html"
+    net.write_html(output_path)  # ✅ safe alternative to net.show()
+    print(f"🎞️ Animated Louvain graph saved to: {output_path}")
+
 
 def reorder_matrix(matrix, algorithm="none", min_fks=1, df=None):
     if algorithm == "none":
@@ -287,6 +334,7 @@ def main(input_file, algorithm, min_fks, ndepend_style):
 
     if algorithm == "louvain":
         plot_louvain_network(df, coords_or_partition, input_base)
+        plot_louvain_pyvis(df, coords_or_partition, input_base)
 
     if algorithm == "hierarchical" and coords_or_partition is not None:
         plot_dendrogram(coords_or_partition, clustered_tables, input_base, ndepend_style)
