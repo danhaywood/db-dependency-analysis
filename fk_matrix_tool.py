@@ -1,10 +1,12 @@
-import pandas as pd
+import argparse
+import os
+
 import numpy as np
-from scipy.spatial.distance import pdist
-from scipy.cluster.hierarchy import linkage, leaves_list
+import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
-import argparse
+from scipy.cluster.hierarchy import linkage, leaves_list
+from scipy.spatial.distance import pdist
 
 
 def load_fk_data(file_path):
@@ -27,23 +29,49 @@ def build_matrix(df):
 
 def reorder_matrix(matrix, algorithm="none"):
     if algorithm == "none":
-        ordered_labels = sorted(matrix.index)
-    else:
-        binary_matrix = matrix.replace({'Y': 1, '': 0}).astype(int).values
+        return matrix.sort_index().sort_index(axis=1)
 
+    # Convert matrix to binary numeric form
+    binary_matrix = matrix.replace({'Y': 1, '': 0}).astype(int)
+
+    # Remove rows and columns with all zeros
+    active_rows = binary_matrix.index[binary_matrix.sum(axis=1) > 0]
+    active_cols = binary_matrix.columns[binary_matrix.sum(axis=0) > 0]
+    active_tables = sorted(set(active_rows) & set(active_cols))
+
+    if len(active_tables) < 2:
+        print("⚠️ Not enough connected tables to cluster. Falling back to alphabetical.")
+        return matrix.sort_index().sort_index(axis=1)
+
+    # Sub-matrix with activity
+    sub_matrix = binary_matrix.loc[active_tables, active_tables]
+
+    # Compute clustering distances
+    try:
         if algorithm == "cosine":
-            distance_matrix = pdist(binary_matrix, metric='cosine')
+            distance_matrix = pdist(sub_matrix.values, metric='cosine')
         elif algorithm == "hierarchical":
-            distance_matrix = pdist(binary_matrix, metric='jaccard')
+            distance_matrix = pdist(sub_matrix.values, metric='jaccard')
         else:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
 
+        if not np.isfinite(distance_matrix).all():
+            raise ValueError("⚠️ Non-finite values detected in distance matrix. Try 'none' algorithm.")
+
         linkage_matrix = linkage(distance_matrix, method='average')
         order = leaves_list(linkage_matrix)
-        ordered_labels = matrix.index[order]
+        clustered_tables = sub_matrix.index[order].tolist()
 
-    return matrix.loc[ordered_labels, ordered_labels]
+    except Exception as e:
+        print(f"⚠️ Clustering failed: {e}")
+        print("🔁 Falling back to alphabetical.")
+        return matrix.sort_index().sort_index(axis=1)
 
+    # Add back inactive tables at the end
+    inactive_tables = sorted(set(matrix.index) - set(clustered_tables))
+    all_tables = clustered_tables + inactive_tables
+
+    return matrix.loc[all_tables, all_tables]
 
 def format_excel(file_path):
     wb = load_workbook(filename=file_path)
@@ -62,17 +90,17 @@ def format_excel(file_path):
     # Freeze panes at B2
     ws.freeze_panes = "B2"
 
-    # Autofit each column width
-    for col_cells in ws.iter_cols(min_row=1, max_row=ws.max_row):
-        max_length = 0
-        for cell in col_cells:
-            try:
-                if cell.value:
-                    max_length = max(max_length, len(str(cell.value)))
-            except:
-                pass
+    # Set first column (A) width based on actual content
+    max_length = 0
+    for cell in ws['A']:
+        if cell.value:
+            max_length = max(max_length, len(str(cell.value)))
+    ws.column_dimensions['A'].width = max_length + 1
+
+    # Set fixed width for all other columns (rotated headers)
+    for col_cells in ws.iter_cols(min_row=1, max_row=1, min_col=2):
         col_letter = col_cells[0].column_letter
-        ws.column_dimensions[col_letter].width = max_length + 1
+        ws.column_dimensions[col_letter].width = 2.67
 
     wb.save(filename=file_path)
     print(f"🎨 Excel formatted: {file_path}")
@@ -88,14 +116,16 @@ def main(input_file, algorithm):
     print(f"🔁 Applying algorithm: {algorithm}")
     reordered_matrix = reorder_matrix(matrix, algorithm)
 
-    output_file = f"fk_matrix_clustered_{algorithm}.xlsx"
+    # Construct output file name from input
+    input_base = os.path.splitext(os.path.basename(input_file))[0]
+    output_file = f"{input_base}.{algorithm}.xlsx"
+
     print(f"💾 Saving output to: {output_file}")
     reordered_matrix.to_excel(output_file)
 
     format_excel(output_file)
 
     print("✅ Done!")
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Foreign Key Matrix Reorder Tool")
