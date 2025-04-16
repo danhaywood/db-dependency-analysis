@@ -1,0 +1,36 @@
+= db-dependency-analysis
+
+== Prereqs
+
+[source,bash,subs="attributes+"]
+----
+pip install pandas openpyxl scipy
+----
+
+Export the FKs as a file:
+
+[source,sql]
+----
+;WITH AllTables AS (                            --<.>
+    SELECT t.object_id
+         , CONCAT(s.name, '.', t.name) AS full_name
+      FROM sys.tables t
+      JOIN sys.schemas s ON t.schema_id = s.schema_id
+)
+SELECT                                          --<.>
+       ft.full_name AS from_table,
+       tt.full_name AS to_table,
+       fk.name AS fk_name
+  FROM sys.foreign_keys fk
+  JOIN AllTables ft ON fk.parent_object_id = ft.object_id
+  JOIN AllTables tt ON fk.referenced_object_id = tt.object_id
+ORDER BY from_table, to_table;
+----
+
+<.> Get all unique tables (schema + name)
+<.> Get all FKs as matrix cells
+
+NOTE: todo - we might extend the script for this later.
+
+
+
