@@ -34,4 +34,35 @@ ORDER BY from_table, to_table;
 NOTE: todo - we might extend the script for this later.
 
 
+== Running the tool
 
+See `.run/xxx.run.xml` scripts
+
+Supported algorithms:
+
+* `none`
+* `hierarchical`
+* `cosine` (but this one never works)
+* `pca`
+* `tsne`
+* `leiden`
+* `louvain`
+
+Both `leiden` and `louvain` are clustering algorithms, will probably find the most use.
+
+
+== Building a Docker image
+
+[source,bash,subs="attributes+"]
+----
+docker build -t fktool .
+----
+
+
+== Running the Docker image
+
+[source,bash,subs="attributes+"]
+----
+docker run --rm -v $(pwd):/app fktool \
+  --input estatio_danh.xlsx --algorithm pca
+----
