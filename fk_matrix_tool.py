@@ -3,12 +3,14 @@ import os
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import pdist
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+
 
 def load_fk_data(file_path):
     df = pd.read_excel(file_path)
@@ -28,20 +30,34 @@ def build_matrix(df):
     return matrix
 
 
+def plot_tsne_projection(clustered_tables, coords, output_base):
+    plt.figure(figsize=(12, 10))
+    x, y = coords[:, 0], coords[:, 1]
+
+    for i, table in enumerate(clustered_tables):
+        plt.scatter(x[i], y[i], s=30, color='steelblue')
+        label = table.split('.')[-1][:20]  # Shorten for readability
+        plt.text(x[i], y[i], label, fontsize=8, alpha=0.7)
+
+    plt.title("t-SNE Projection of Table Dependencies", fontsize=14)
+    plt.grid(True)
+    plt.tight_layout()
+    output_path = f"{output_base}.tsne.png"
+    plt.savefig(output_path, dpi=150)
+    print(f"📊 t-SNE plot saved to: {output_path}")
+
+
 def reorder_matrix(matrix, algorithm="none", min_fks=1):
     if algorithm == "none":
-        return matrix.sort_index().sort_index(axis=1)
+        return matrix.sort_index().sort_index(axis=1), None, None
 
-    # Convert matrix to binary numeric form
     binary_matrix = matrix.replace({'Y': 1, '': 0}).astype(int)
-
-    # Calculate total FK activity per table
     fk_activity = binary_matrix.sum(axis=1) + binary_matrix.sum(axis=0)
     active_tables = fk_activity[fk_activity >= min_fks].index.tolist()
 
     if len(active_tables) < 2:
         print("⚠️ Not enough connected tables for clustering. Falling back to alphabetical.")
-        return matrix.sort_index().sort_index(axis=1)
+        return matrix.sort_index().sort_index(axis=1), None, None
 
     sub_matrix = binary_matrix.loc[active_tables, active_tables]
 
@@ -49,8 +65,7 @@ def reorder_matrix(matrix, algorithm="none", min_fks=1):
         if algorithm == "cosine":
             distance_matrix = pdist(sub_matrix.values, metric='cosine')
             if not np.isfinite(distance_matrix).all():
-                raise ValueError(
-                    "Non-finite values detected in distance matrix. Try a different algorithm or increase --min-fks.")
+                raise ValueError("Non-finite values detected in distance matrix.")
             linkage_matrix = linkage(distance_matrix, method='average')
             order = leaves_list(linkage_matrix)
 
@@ -62,12 +77,20 @@ def reorder_matrix(matrix, algorithm="none", min_fks=1):
         elif algorithm == "pca":
             pca = PCA(n_components=2)
             coords = pca.fit_transform(sub_matrix.values)
-            order = np.argsort(coords[:, 0])  # Sort by X-axis
+            order = np.argsort(coords[:, 0])
+            clustered_tables = sub_matrix.index[order].tolist()
+            inactive_tables = sorted(set(matrix.index) - set(clustered_tables))
+            all_tables = clustered_tables + inactive_tables
+            return matrix.loc[all_tables, all_tables], None, None
 
         elif algorithm == "tsne":
             tsne = TSNE(n_components=2, random_state=42, init='pca', perplexity=30, n_iter=1000)
             coords = tsne.fit_transform(sub_matrix.values)
-            order = np.argsort(coords[:, 0])  # Sort by X-axis
+            order = np.argsort(coords[:, 0])
+            clustered_tables = sub_matrix.index[order].tolist()
+            inactive_tables = sorted(set(matrix.index) - set(clustered_tables))
+            all_tables = clustered_tables + inactive_tables
+            return matrix.loc[all_tables, all_tables], clustered_tables, coords
 
         else:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
@@ -77,39 +100,34 @@ def reorder_matrix(matrix, algorithm="none", min_fks=1):
     except Exception as e:
         print(f"⚠️ Clustering failed: {e}")
         print("🔁 Falling back to alphabetical.")
-        return matrix.sort_index().sort_index(axis=1)
+        return matrix.sort_index().sort_index(axis=1), None, None
 
-    # Append inactive tables after clustered ones
     inactive_tables = sorted(set(matrix.index) - set(clustered_tables))
     all_tables = clustered_tables + inactive_tables
 
-    return matrix.loc[all_tables, all_tables]
+    return matrix.loc[all_tables, all_tables], None, None
+
 
 def format_excel(file_path):
     wb = load_workbook(filename=file_path)
     ws = wb.active
 
-    # Rotate column headers (skip top-left cell)
     for col in ws.iter_cols(min_row=1, max_row=1, min_col=2):
         for cell in col:
             cell.alignment = Alignment(textRotation=90)
 
-    # Right-align first column
     for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=1):
         for cell in row:
             cell.alignment = Alignment(horizontal='right')
 
-    # Freeze panes at B2
     ws.freeze_panes = "B2"
 
-    # Set first column (A) width based on actual content
     max_length = 0
     for cell in ws['A']:
         if cell.value:
             max_length = max(max_length, len(str(cell.value)))
     ws.column_dimensions['A'].width = max_length + 1
 
-    # Set fixed width for all other columns (rotated headers)
     for col_cells in ws.iter_cols(min_row=1, max_row=1, min_col=2):
         col_letter = col_cells[0].column_letter
         ws.column_dimensions[col_letter].width = 2.67
@@ -126,18 +144,19 @@ def main(input_file, algorithm, min_fks):
     matrix = build_matrix(df)
 
     print(f"🔁 Applying algorithm: {algorithm}")
-    reordered_matrix = reorder_matrix(matrix, algorithm)
+    reordered_matrix, clustered_tables, coords = reorder_matrix(matrix, algorithm, min_fks)
 
-    # Construct output file name from input
     input_base = os.path.splitext(os.path.basename(input_file))[0]
     output_file = f"{input_base}.{algorithm}.xlsx"
-
-    print(f"💾 Saving output to: {output_file}")
     reordered_matrix.to_excel(output_file)
-
     format_excel(output_file)
+    print(f"💾 Excel saved to: {output_file}")
+
+    if algorithm == "tsne" and clustered_tables is not None and coords is not None:
+        plot_tsne_projection(clustered_tables, coords, input_base)
 
     print("✅ Done!")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Foreign Key Matrix Reorder Tool")

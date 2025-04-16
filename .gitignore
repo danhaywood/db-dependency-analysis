@@ -175,4 +175,5 @@ cython_debug/
 
 
 *.xlsx
+*.png
 .idea/
