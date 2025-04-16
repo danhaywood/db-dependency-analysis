@@ -161,7 +161,11 @@ def plot_louvain_pyvis(df, partition, output_base):
 
     for node in net.nodes:
         name = node['id']
-        node['group'] = partition.get(name, -1)
+        degree = G.degree(name)
+        community = partition.get(name, -1)
+
+        node['title'] = f"{name}\nCommunity: {community}\nFK degree: {degree}"
+        node['group'] = community
 
     # Optional: tweak physics settings
     net.set_options("""
@@ -192,7 +196,7 @@ def plot_louvain_pyvis(df, partition, output_base):
     print(f"🎞️ Animated Louvain graph saved to: {output_path}")
 
 
-def reorder_matrix(matrix, algorithm="none", min_fks=1, df=None):
+def reorder_matrix(matrix, algorithm="none", min_fks=1, df=None, threshold=2):
     if algorithm == "none":
         order = sorted(matrix.index)
         return order, None, None
@@ -247,7 +251,7 @@ def reorder_matrix(matrix, algorithm="none", min_fks=1, df=None):
 
             # Step 2: Remove low-degree nodes (noise)
             G = G_full.copy()
-            noise_threshold = 2
+            noise_threshold = threshold
             low_degree_nodes = [n for n, d in G.degree() if d < noise_threshold]
             G.remove_nodes_from(low_degree_nodes)
 
@@ -306,7 +310,7 @@ def format_excel(file_path):
     print(f"🎨 Excel formatted: {file_path}")
 
 
-def main(input_file, algorithm, min_fks, ndepend_style):
+def main(input_file, algorithm, min_fks, ndepend_style, threshold):
     print(f"🔍 Loading foreign keys from: {input_file}")
     df = load_fk_data(input_file)
 
@@ -314,7 +318,7 @@ def main(input_file, algorithm, min_fks, ndepend_style):
     matrix = build_matrix(df)
 
     print(f"🔁 Applying algorithm: {algorithm}")
-    order, clustered_tables, coords_or_partition = reorder_matrix(matrix, algorithm, min_fks, df)
+    order, clustered_tables, coords_or_partition = reorder_matrix(matrix, algorithm, min_fks, df, threshold)
 
     if ndepend_style:
         reordered_matrix = matrix.loc[order, order]
@@ -356,11 +360,12 @@ def main(input_file, algorithm, min_fks, ndepend_style):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Foreign Key Matrix Reorder Tool")
+    parser = argparse.ArgumentParser(description="Foreign Key Analysis Tool")
     parser.add_argument("--input", type=str, default="foreign_keys.xlsx", help="Input Excel file with FK relationships")
     parser.add_argument("--algorithm", type=str, choices=["none", "hierarchical", "cosine", "pca", "tsne", "louvain"], default="none", help="Reordering algorithm")
     parser.add_argument("--min-fks", type=int, default=1, help="Minimum total FK activity (in+out) to include in clustering")
     parser.add_argument("--ndepend-style", type=bool, default=False, help="Force same row/column ordering (NDepend-style)")
+    parser.add_argument("--threshold", type=int, default=2, help="FK threshold to ignore as noise (Louvain only)")
     args = parser.parse_args()
 
-    main(args.input, args.algorithm, args.min_fks, args.ndepend_style)
+    main(args.input, args.algorithm, args.min_fks, args.ndepend_style, args.threshold)
