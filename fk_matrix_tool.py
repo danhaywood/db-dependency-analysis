@@ -11,7 +11,7 @@ from scipy.spatial.distance import pdist
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from scipy.cluster.hierarchy import dendrogram
-
+import plotly.express as px
 
 def load_fk_data(file_path):
     df = pd.read_excel(file_path)
@@ -55,6 +55,29 @@ def plot_dendrogram(linkage_matrix, labels, output_base):
     output_path = f"{output_base}.hierarchicall.png"
     plt.savefig(output_path, dpi=150)
     print(f"🌳 Dendrogram saved to: {output_path}")
+
+def plot_pca_interactive(clustered_tables, coords, output_base):
+    df = pd.DataFrame(coords, columns=["PC1", "PC2"])
+    df["Table"] = clustered_tables
+    df["Schema"] = [t.split(".")[0] if "." in t else "default" for t in clustered_tables]
+    df["Label"] = [t.split(".")[-1] for t in clustered_tables]
+
+    fig = px.scatter(
+        df, x="PC1", y="PC2",
+        hover_name="Table",
+        color="Schema",
+        text="Label",
+        title="PCA Projection of Table Dependencies (Interactive)",
+        width=1000,
+        height=700
+    )
+
+    fig.update_traces(textposition='top center', marker=dict(size=10, opacity=0.7))
+    fig.update_layout(legend_title_text='Schema')
+
+    output_path = f"{output_base}.pca.html"
+    fig.write_html(output_path)
+    print(f"🌐 Interactive PCA plot saved to: {output_path}")
 
 def reorder_matrix(matrix, algorithm="none", min_fks=1):
     if algorithm == "none":
@@ -177,6 +200,10 @@ def main(input_file, algorithm, min_fks):
             title=f"{algorithm.upper()} Projection of Table Dependencies",
             suffix=algorithm
         )
+
+    if algorithm == "pca":
+        plot_pca_interactive(clustered_tables, coords, input_base)
+
     print("✅ Done!")
 
 

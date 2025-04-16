@@ -11,16 +11,16 @@ Export the FKs as a file:
 
 [source,sql]
 ----
-;WITH AllTables AS (                            --<.>
+;WITH AllTables AS (                         --<.>
     SELECT t.object_id
          , CONCAT(s.name, '.', t.name) AS full_name
       FROM sys.tables t
       JOIN sys.schemas s ON t.schema_id = s.schema_id
 )
-SELECT                                          --<.>
+SELECT                                      --<.>
+       DISTINCT
        ft.full_name AS from_table,
-       tt.full_name AS to_table,
-       fk.name AS fk_name
+       tt.full_name AS to_table
   FROM sys.foreign_keys fk
   JOIN AllTables ft ON fk.parent_object_id = ft.object_id
   JOIN AllTables tt ON fk.referenced_object_id = tt.object_id
