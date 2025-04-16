@@ -30,22 +30,21 @@ def build_matrix(df):
     return matrix
 
 
-def plot_tsne_projection(clustered_tables, coords, output_base):
+def plot_projection(clustered_tables, coords, output_base, title, suffix):
     plt.figure(figsize=(12, 10))
     x, y = coords[:, 0], coords[:, 1]
 
     for i, table in enumerate(clustered_tables):
         plt.scatter(x[i], y[i], s=30, color='steelblue')
-        label = table.split('.')[-1][:20]  # Shorten for readability
+        label = table.split('.')[-1][:20]  # Truncate long names
         plt.text(x[i], y[i], label, fontsize=8, alpha=0.7)
 
-    plt.title("t-SNE Projection of Table Dependencies", fontsize=14)
+    plt.title(title, fontsize=14)
     plt.grid(True)
     plt.tight_layout()
-    output_path = f"{output_base}.tsne.png"
+    output_path = f"{output_base}.{suffix}.png"
     plt.savefig(output_path, dpi=150)
-    print(f"📊 t-SNE plot saved to: {output_path}")
-
+    print(f"📊 Plot saved to: {output_path}")
 
 def reorder_matrix(matrix, algorithm="none", min_fks=1):
     if algorithm == "none":
@@ -81,7 +80,7 @@ def reorder_matrix(matrix, algorithm="none", min_fks=1):
             clustered_tables = sub_matrix.index[order].tolist()
             inactive_tables = sorted(set(matrix.index) - set(clustered_tables))
             all_tables = clustered_tables + inactive_tables
-            return matrix.loc[all_tables, all_tables], None, None
+            return matrix.loc[all_tables, all_tables], clustered_tables, coords
 
         elif algorithm == "tsne":
             tsne = TSNE(n_components=2, random_state=42, init='pca', perplexity=30, n_iter=1000)
@@ -152,9 +151,14 @@ def main(input_file, algorithm, min_fks):
     format_excel(output_file)
     print(f"💾 Excel saved to: {output_file}")
 
-    if algorithm == "tsne" and clustered_tables is not None and coords is not None:
-        plot_tsne_projection(clustered_tables, coords, input_base)
-
+    if algorithm in ["tsne", "pca"] and clustered_tables is not None and coords is not None:
+        plot_projection(
+            clustered_tables,
+            coords,
+            input_base,
+            title=f"{algorithm.upper()} Projection of Table Dependencies",
+            suffix=algorithm
+        )
     print("✅ Done!")
 
 
