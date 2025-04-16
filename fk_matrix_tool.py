@@ -15,6 +15,8 @@ import plotly.express as px
 import networkx as nx
 import community as community_louvain  # this is python-louvain
 from pyvis.network import Network
+import igraph as ig
+import leidenalg
 
 def load_fk_data(file_path):
     df = pd.read_excel(file_path)
@@ -146,9 +148,8 @@ def plot_louvain_network(df, partition, output_base):
     fig.write_html(output_path)
     print(f"🌐 Louvain network plot saved to: {output_path}")
 
-from pyvis.network import Network
 
-def plot_louvain_pyvis(df, partition, output_base):
+def plot_lxxxn_pyvis(df, partition, output_base, algorithm):
     from pyvis.network import Network
     import networkx as nx
 
@@ -191,9 +192,9 @@ def plot_louvain_pyvis(df, partition, output_base):
     }
     """)
 
-    output_path = f"{output_base}.louvain.anim.html"
-    net.write_html(output_path)  # ✅ safe alternative to net.show()
-    print(f"🎞️ Animated Louvain graph saved to: {output_path}")
+    output_path = f"{output_base}.{algorithm}.anim.html"
+    net.write_html(output_path)
+    print(f"🎞️ Animated {algorithm} graph saved to: {output_path}")
 
 
 def reorder_matrix(matrix, algorithm="none", min_fks=1, df=None, threshold=2):
@@ -268,6 +269,33 @@ def reorder_matrix(matrix, algorithm="none", min_fks=1, df=None, threshold=2):
 
             return full_order, clustered_tables, partition
 
+        elif algorithm == "leiden":
+            # Build undirected FK graph using igraph
+            edges = [(row['from_table'], row['to_table']) for _, row in df.iterrows()]
+            table_set = sorted(set(df['from_table']) | set(df['to_table']))
+            table_to_index = {table: i for i, table in enumerate(table_set)}
+
+            ig_edges = [(table_to_index[a], table_to_index[b]) for a, b in edges]
+            g = ig.Graph(edges=ig_edges, directed=False)
+            g.vs["name"] = table_set
+
+            # Run Leiden community detection
+            partition = leidenalg.find_partition(g, leidenalg.ModularityVertexPartition)
+
+            # Convert partition to table → community dict
+            table_to_comm = {}
+            for comm_id, cluster in enumerate(partition):
+                for idx in cluster:
+                    table_to_comm[g.vs[idx]["name"]] = comm_id
+
+            # Sort tables by community
+            ordered_tables = sorted(table_to_comm.items(), key=lambda x: (x[1], x[0]))
+            clustered_tables = [t for t, _ in ordered_tables]
+            inactive_tables = sorted(set(matrix.index) - set(clustered_tables))
+            full_order = clustered_tables + inactive_tables
+
+            return full_order, clustered_tables, table_to_comm
+
         else:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
 
@@ -337,8 +365,11 @@ def main(input_file, algorithm, min_fks, ndepend_style, threshold):
     print(f"💾 Excel saved to: {output_file}")
 
     if algorithm == "louvain":
-        plot_louvain_network(df, coords_or_partition, input_base)
-        plot_louvain_pyvis(df, coords_or_partition, input_base)
+        # plot_louvain_network(df, coords_or_partition, input_base)
+        plot_lxxxn_pyvis(df, coords_or_partition, input_base, algorithm)
+
+    if algorithm == "leiden":
+        plot_lxxxn_pyvis(df, coords_or_partition, input_base, algorithm)
 
     if algorithm == "hierarchical" and coords_or_partition is not None:
         plot_dendrogram(coords_or_partition, clustered_tables, input_base, ndepend_style)
@@ -362,7 +393,7 @@ def main(input_file, algorithm, min_fks, ndepend_style, threshold):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Foreign Key Analysis Tool")
     parser.add_argument("--input", type=str, default="foreign_keys.xlsx", help="Input Excel file with FK relationships")
-    parser.add_argument("--algorithm", type=str, choices=["none", "hierarchical", "cosine", "pca", "tsne", "louvain"], default="none", help="Reordering algorithm")
+    parser.add_argument("--algorithm", type=str, choices=["none", "hierarchical", "cosine", "pca", "tsne", "louvain", "leiden"], default="none", help="Reordering algorithm")
     parser.add_argument("--min-fks", type=int, default=1, help="Minimum total FK activity (in+out) to include in clustering")
     parser.add_argument("--ndepend-style", type=bool, default=False, help="Force same row/column ordering (NDepend-style)")
     parser.add_argument("--threshold", type=int, default=2, help="FK threshold to ignore as noise (Louvain only)")
