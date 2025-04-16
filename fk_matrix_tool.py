@@ -12,6 +12,8 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from scipy.cluster.hierarchy import dendrogram
 import plotly.express as px
+import networkx as nx
+import community as community_louvain  # this is python-louvain
 
 def load_fk_data(file_path):
     df = pd.read_excel(file_path)
@@ -98,7 +100,52 @@ def plot_interactive_projection(clustered_tables, coords, output_base, algorithm
     fig.write_html(output_path)
     print(f"🌐 Interactive PCA plot saved to: {output_path}")
 
-def reorder_matrix(matrix, algorithm="none", min_fks=1):
+def plot_louvain_network(df, partition, output_base):
+    import plotly.graph_objs as go
+
+    edges = [(row['from_table'], row['to_table']) for _, row in df.iterrows()]
+    G = nx.Graph()
+    G.add_edges_from(edges)
+
+    pos = nx.spring_layout(G, seed=42)
+    node_trace = go.Scatter(
+        x=[pos[n][0] for n in G.nodes],
+        y=[pos[n][1] for n in G.nodes],
+        mode='markers+text',
+        text=[n.split('.')[-1] for n in G.nodes],
+        hovertext=[n for n in G.nodes],
+        textposition="top center",
+        marker=dict(
+            size=10,
+            color=[partition.get(n, -1) for n in G.nodes],
+            colorscale='Viridis',
+            showscale=True,
+            colorbar=dict(title="Community")
+        )
+    )
+
+    edge_trace = []
+    for src, tgt in G.edges:
+        edge_trace.append(go.Scatter(
+            x=[pos[src][0], pos[tgt][0], None],
+            y=[pos[src][1], pos[tgt][1], None],
+            mode='lines',
+            line=dict(width=0.5, color='#888'),
+            hoverinfo='none'
+        ))
+
+    fig = go.Figure(data=edge_trace + [node_trace])
+    fig.update_layout(
+        title="Louvain Clustering of FK Graph",
+        showlegend=False,
+        width=1000,
+        height=800
+    )
+    output_path = f"{output_base}.louvain.html"
+    fig.write_html(output_path)
+    print(f"🌐 Louvain network plot saved to: {output_path}")
+
+def reorder_matrix(matrix, algorithm="none", min_fks=1, df=None):
     if algorithm == "none":
         order = sorted(matrix.index)
         return order, None, None
@@ -144,6 +191,21 @@ def reorder_matrix(matrix, algorithm="none", min_fks=1):
             order_indices = np.argsort(coords[:, 0])
             order = sub_matrix.index[order_indices].tolist()
             return order + sorted(set(matrix.index) - set(order)), order, coords
+
+        elif algorithm == "louvain":
+            # Step 1: Build graph from FK edges
+            edges = [(row['from_table'], row['to_table']) for _, row in df.iterrows()]
+            G = nx.Graph()
+            G.add_edges_from(edges)
+
+            # Step 2: Run Louvain clustering
+            partition = community_louvain.best_partition(G)
+
+            # Step 3: Sort tables by community
+            table_to_community = sorted(partition.items(), key=lambda x: (x[1], x[0]))
+            order = [t for t, _ in table_to_community]
+
+            return order, order, partition  # using partition as "coords"
 
         else:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
@@ -195,7 +257,7 @@ def main(input_file, algorithm, min_fks, ndepend_style):
     matrix = build_matrix(df)
 
     print(f"🔁 Applying algorithm: {algorithm}")
-    order, clustered_tables, coords = reorder_matrix(matrix, algorithm, min_fks)
+    order, clustered_tables, coords_or_partition = reorder_matrix(matrix, algorithm, min_fks, df)
 
     if ndepend_style:
         reordered_matrix = matrix.loc[order, order]
@@ -213,13 +275,16 @@ def main(input_file, algorithm, min_fks, ndepend_style):
     format_excel(output_file)
     print(f"💾 Excel saved to: {output_file}")
 
-    if algorithm == "hierarchical" and coords is not None:
-        plot_dendrogram(coords, clustered_tables, input_base, ndepend_style)
+    if algorithm == "louvain":
+        plot_louvain_network(df, coords_or_partition, input_base)
 
-    if algorithm in ["tsne", "pca"] and clustered_tables is not None and coords is not None:
+    if algorithm == "hierarchical" and coords_or_partition is not None:
+        plot_dendrogram(coords_or_partition, clustered_tables, input_base, ndepend_style)
+
+    if algorithm in ["tsne", "pca"] and clustered_tables is not None and coords_or_partition is not None:
         plot_projection(
             clustered_tables,
-            coords,
+            coords_or_partition,
             input_base,
             f"{algorithm.upper()} Projection of Table Dependencies",
             algorithm,
@@ -235,7 +300,7 @@ def main(input_file, algorithm, min_fks, ndepend_style):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Foreign Key Matrix Reorder Tool")
     parser.add_argument("--input", type=str, default="foreign_keys.xlsx", help="Input Excel file with FK relationships")
-    parser.add_argument("--algorithm", type=str, choices=["none", "hierarchical", "cosine", "pca", "tsne"], default="none", help="Reordering algorithm")
+    parser.add_argument("--algorithm", type=str, choices=["none", "hierarchical", "cosine", "pca", "tsne", "louvain"], default="none", help="Reordering algorithm")
     parser.add_argument("--min-fks", type=int, default=1, help="Minimum total FK activity (in+out) to include in clustering")
     parser.add_argument("--ndepend-style", type=bool, default=False, help="Force same row/column ordering (NDepend-style)")
     args = parser.parse_args()
