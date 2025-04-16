@@ -10,6 +10,7 @@ from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import pdist
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from scipy.cluster.hierarchy import dendrogram
 
 
 def load_fk_data(file_path):
@@ -46,6 +47,15 @@ def plot_projection(clustered_tables, coords, output_base, title, suffix):
     plt.savefig(output_path, dpi=150)
     print(f"📊 Plot saved to: {output_path}")
 
+def plot_dendrogram(linkage_matrix, labels, output_base):
+    plt.figure(figsize=(14, 8))
+    dendrogram(linkage_matrix, labels=[lbl.split('.')[-1][:30] for lbl in labels], leaf_rotation=90)
+    plt.title("Hierarchical Clustering Dendrogram")
+    plt.tight_layout()
+    output_path = f"{output_base}.hierarchicall.png"
+    plt.savefig(output_path, dpi=150)
+    print(f"🌳 Dendrogram saved to: {output_path}")
+
 def reorder_matrix(matrix, algorithm="none", min_fks=1):
     if algorithm == "none":
         return matrix.sort_index().sort_index(axis=1), None, None
@@ -72,6 +82,11 @@ def reorder_matrix(matrix, algorithm="none", min_fks=1):
             distance_matrix = pdist(sub_matrix.values, metric='jaccard')
             linkage_matrix = linkage(distance_matrix, method='average')
             order = leaves_list(linkage_matrix)
+            # Save linkage_matrix and labels for dendrogram
+            clustered_tables = sub_matrix.index[order].tolist()
+            return matrix.loc[clustered_tables + sorted(set(matrix.index) - set(clustered_tables)),
+                              clustered_tables + sorted(set(matrix.columns) - set(clustered_tables))], \
+                clustered_tables, linkage_matrix
 
         elif algorithm == "pca":
             pca = PCA(n_components=2)
@@ -150,6 +165,9 @@ def main(input_file, algorithm, min_fks):
     reordered_matrix.to_excel(output_file)
     format_excel(output_file)
     print(f"💾 Excel saved to: {output_file}")
+
+    if algorithm == "hierarchical" and coords is not None:
+        plot_dendrogram(coords, clustered_tables, input_base)
 
     if algorithm in ["tsne", "pca"] and clustered_tables is not None and coords is not None:
         plot_projection(
