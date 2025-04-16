@@ -27,26 +27,23 @@ def build_matrix(df):
     return matrix
 
 
-def reorder_matrix(matrix, algorithm="none"):
+def reorder_matrix(matrix, algorithm="none", min_fks=1):
     if algorithm == "none":
         return matrix.sort_index().sort_index(axis=1)
 
     # Convert matrix to binary numeric form
     binary_matrix = matrix.replace({'Y': 1, '': 0}).astype(int)
 
-    # Remove rows and columns with all zeros
-    active_rows = binary_matrix.index[binary_matrix.sum(axis=1) > 0]
-    active_cols = binary_matrix.columns[binary_matrix.sum(axis=0) > 0]
-    active_tables = sorted(set(active_rows) & set(active_cols))
+    # Calculate total FK activity per table
+    fk_activity = binary_matrix.sum(axis=1) + binary_matrix.sum(axis=0)
+    active_tables = fk_activity[fk_activity >= min_fks].index.tolist()
 
     if len(active_tables) < 2:
-        print("⚠️ Not enough connected tables to cluster. Falling back to alphabetical.")
+        print("⚠️ Not enough connected tables for clustering. Falling back to alphabetical.")
         return matrix.sort_index().sort_index(axis=1)
 
-    # Sub-matrix with activity
     sub_matrix = binary_matrix.loc[active_tables, active_tables]
 
-    # Compute clustering distances
     try:
         if algorithm == "cosine":
             distance_matrix = pdist(sub_matrix.values, metric='cosine')
@@ -56,7 +53,7 @@ def reorder_matrix(matrix, algorithm="none"):
             raise ValueError(f"Unsupported algorithm: {algorithm}")
 
         if not np.isfinite(distance_matrix).all():
-            raise ValueError("⚠️ Non-finite values detected in distance matrix. Try 'none' algorithm.")
+            raise ValueError("Non-finite values detected in distance matrix. Try a different algorithm or increase --min-fks.")
 
         linkage_matrix = linkage(distance_matrix, method='average')
         order = leaves_list(linkage_matrix)
@@ -67,7 +64,7 @@ def reorder_matrix(matrix, algorithm="none"):
         print("🔁 Falling back to alphabetical.")
         return matrix.sort_index().sort_index(axis=1)
 
-    # Add back inactive tables at the end
+    # Append inactive tables after clustered ones
     inactive_tables = sorted(set(matrix.index) - set(clustered_tables))
     all_tables = clustered_tables + inactive_tables
 
@@ -106,7 +103,7 @@ def format_excel(file_path):
     print(f"🎨 Excel formatted: {file_path}")
 
 
-def main(input_file, algorithm):
+def main(input_file, algorithm, min_fks):
     print(f"🔍 Loading foreign keys from: {input_file}")
     df = load_fk_data(input_file)
 
@@ -131,6 +128,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Foreign Key Matrix Reorder Tool")
     parser.add_argument("--input", type=str, default="foreign_keys.xlsx", help="Input Excel file with FK relationships")
     parser.add_argument("--algorithm", type=str, choices=["none", "hierarchical", "cosine"], default="none", help="Reordering algorithm")
+    parser.add_argument("--min-fks", type=int, default=1, help="Minimum total FK activity (in+out) to include in clustering")
     args = parser.parse_args()
 
-    main(args.input, args.algorithm)
+    main(args.input, args.algorithm, args.min_fks)
