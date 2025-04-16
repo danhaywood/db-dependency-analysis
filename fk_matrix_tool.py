@@ -56,7 +56,7 @@ def plot_dendrogram(linkage_matrix, labels, output_base):
     plt.savefig(output_path, dpi=150)
     print(f"🌳 Dendrogram saved to: {output_path}")
 
-def plot_pca_interactive(clustered_tables, coords, output_base):
+def plot_interactive_projection(clustered_tables, coords, output_base, algorithm):
     df = pd.DataFrame(coords, columns=["PC1", "PC2"])
     df["Table"] = clustered_tables
     df["Schema"] = [t.split(".")[0] if "." in t else "default" for t in clustered_tables]
@@ -67,7 +67,7 @@ def plot_pca_interactive(clustered_tables, coords, output_base):
         hover_name="Table",
         color="Schema",
         text="Label",
-        title="PCA Projection of Table Dependencies (Interactive)",
+        title=f"{algorithm.upper()} Projection of Table Dependencies (Interactive)",
         width=1000,
         height=700
     )
@@ -75,7 +75,7 @@ def plot_pca_interactive(clustered_tables, coords, output_base):
     fig.update_traces(textposition='top center', marker=dict(size=10, opacity=0.7))
     fig.update_layout(legend_title_text='Schema')
 
-    output_path = f"{output_base}.pca.html"
+    output_path = f"{output_base}.{algorithm}.html"
     fig.write_html(output_path)
     print(f"🌐 Interactive PCA plot saved to: {output_path}")
 
@@ -201,8 +201,8 @@ def main(input_file, algorithm, min_fks):
             suffix=algorithm
         )
 
-    if algorithm == "pca":
-        plot_pca_interactive(clustered_tables, coords, input_base)
+    if algorithm in ["pca", "tsne"]:
+        plot_interactive_projection(clustered_tables, coords, input_base, algorithm)
 
     print("✅ Done!")
 
