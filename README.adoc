@@ -24,6 +24,7 @@ SELECT                                      --<.>
   FROM sys.foreign_keys fk
   JOIN AllTables ft ON fk.parent_object_id = ft.object_id
   JOIN AllTables tt ON fk.referenced_object_id = tt.object_id
+   AND ft.full_name != tt.full_name
 ORDER BY from_table, to_table;
 ----
 
