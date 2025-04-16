@@ -8,6 +8,7 @@ from openpyxl.styles import Alignment
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import pdist
 from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 
 def load_fk_data(file_path):
     df = pd.read_excel(file_path)
@@ -61,6 +62,11 @@ def reorder_matrix(matrix, algorithm="none", min_fks=1):
         elif algorithm == "pca":
             pca = PCA(n_components=2)
             coords = pca.fit_transform(sub_matrix.values)
+            order = np.argsort(coords[:, 0])  # Sort by X-axis
+
+        elif algorithm == "tsne":
+            tsne = TSNE(n_components=2, random_state=42, init='pca', perplexity=30, n_iter=1000)
+            coords = tsne.fit_transform(sub_matrix.values)
             order = np.argsort(coords[:, 0])  # Sort by X-axis
 
         else:
@@ -136,7 +142,7 @@ def main(input_file, algorithm, min_fks):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Foreign Key Matrix Reorder Tool")
     parser.add_argument("--input", type=str, default="foreign_keys.xlsx", help="Input Excel file with FK relationships")
-    parser.add_argument("--algorithm", type=str, choices=["none", "hierarchical", "cosine", "pca"], default="none", help="Reordering algorithm")
+    parser.add_argument("--algorithm", type=str, choices=["none", "hierarchical", "cosine", "pca", "tsne"], default="none", help="Reordering algorithm")
     parser.add_argument("--min-fks", type=int, default=1, help="Minimum total FK activity (in+out) to include in clustering")
     args = parser.parse_args()
 
