@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import pdist
-
+from sklearn.decomposition import PCA
 
 def load_fk_data(file_path):
     df = pd.read_excel(file_path)
@@ -47,16 +47,25 @@ def reorder_matrix(matrix, algorithm="none", min_fks=1):
     try:
         if algorithm == "cosine":
             distance_matrix = pdist(sub_matrix.values, metric='cosine')
+            if not np.isfinite(distance_matrix).all():
+                raise ValueError(
+                    "Non-finite values detected in distance matrix. Try a different algorithm or increase --min-fks.")
+            linkage_matrix = linkage(distance_matrix, method='average')
+            order = leaves_list(linkage_matrix)
+
         elif algorithm == "hierarchical":
             distance_matrix = pdist(sub_matrix.values, metric='jaccard')
+            linkage_matrix = linkage(distance_matrix, method='average')
+            order = leaves_list(linkage_matrix)
+
+        elif algorithm == "pca":
+            pca = PCA(n_components=2)
+            coords = pca.fit_transform(sub_matrix.values)
+            order = np.argsort(coords[:, 0])  # Sort by X-axis
+
         else:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
 
-        if not np.isfinite(distance_matrix).all():
-            raise ValueError("Non-finite values detected in distance matrix. Try a different algorithm or increase --min-fks.")
-
-        linkage_matrix = linkage(distance_matrix, method='average')
-        order = leaves_list(linkage_matrix)
         clustered_tables = sub_matrix.index[order].tolist()
 
     except Exception as e:
@@ -127,7 +136,7 @@ def main(input_file, algorithm, min_fks):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Foreign Key Matrix Reorder Tool")
     parser.add_argument("--input", type=str, default="foreign_keys.xlsx", help="Input Excel file with FK relationships")
-    parser.add_argument("--algorithm", type=str, choices=["none", "hierarchical", "cosine"], default="none", help="Reordering algorithm")
+    parser.add_argument("--algorithm", type=str, choices=["none", "hierarchical", "cosine", "pca"], default="none", help="Reordering algorithm")
     parser.add_argument("--min-fks", type=int, default=1, help="Minimum total FK activity (in+out) to include in clustering")
     args = parser.parse_args()
 
