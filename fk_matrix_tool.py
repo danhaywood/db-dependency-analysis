@@ -193,19 +193,29 @@ def reorder_matrix(matrix, algorithm="none", min_fks=1, df=None):
             return order + sorted(set(matrix.index) - set(order)), order, coords
 
         elif algorithm == "louvain":
-            # Step 1: Build graph from FK edges
+            # Step 1: Build full graph
             edges = [(row['from_table'], row['to_table']) for _, row in df.iterrows()]
-            G = nx.Graph()
-            G.add_edges_from(edges)
+            G_full = nx.Graph()
+            G_full.add_edges_from(edges)
 
-            # Step 2: Run Louvain clustering
+            # Step 2: Remove low-degree nodes (noise)
+            G = G_full.copy()
+            noise_threshold = 2
+            low_degree_nodes = [n for n, d in G.degree() if d < noise_threshold]
+            G.remove_nodes_from(low_degree_nodes)
+
+            # Step 3: Run Louvain clustering
             partition = community_louvain.best_partition(G)
 
-            # Step 3: Sort tables by community
-            table_to_community = sorted(partition.items(), key=lambda x: (x[1], x[0]))
-            order = [t for t, _ in table_to_community]
+            # Step 4: Order tables by cluster
+            ordered_nodes = sorted(partition.items(), key=lambda x: (x[1], x[0]))
+            clustered_tables = [t for t, _ in ordered_nodes]
 
-            return order, order, partition  # using partition as "coords"
+            # Step 5: Append noise tables at end
+            inactive_tables = sorted(set(matrix.index) - set(clustered_tables))
+            full_order = clustered_tables + inactive_tables
+
+            return full_order, clustered_tables, partition
 
         else:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
