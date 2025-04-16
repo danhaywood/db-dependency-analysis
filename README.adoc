@@ -2,11 +2,6 @@
 
 == Prereqs
 
-[source,bash,subs="attributes+"]
-----
-pip install pandas openpyxl scipy
-----
-
 Export the FKs as a file:
 
 [source,sql]
@@ -31,12 +26,11 @@ ORDER BY from_table, to_table;
 <.> Get all unique tables (schema + name)
 <.> Get all FKs as matrix cells
 
-NOTE: todo - we might extend the script for this later.
 
 
 == Running the tool
 
-See `.run/xxx.run.xml` scripts
+See `.run/xxx.run.xml` scripts for PyCharm run configurations.
 
 Supported algorithms:
 
